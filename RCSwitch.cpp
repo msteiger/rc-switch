@@ -33,6 +33,7 @@
 */
 
 #include "RCSwitch.h"
+#include <cstdio>
 
 #ifdef RaspberryPi
     // PROGMEM and _P functions are for AVR based microprocessors,
@@ -80,7 +81,8 @@ static const VAR_ISR_ATTR RCSwitch::Protocol proto[] = {
 static const RCSwitch::Protocol PROGMEM proto[] = {
 #endif
   { 350, {  1, 31 }, {  1,  3 }, {  3,  1 }, false },    // protocol 1
-  { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false },    // protocol 2
+  { 200, {  1, 14 }, {  1,  0 }, {  0,  1 }, false },    // protocol 2
+  { 200, {  1, 14 }, {  1,  0 }, {  0,  1 }, true },    // protocol 2
   { 100, { 30, 71 }, {  4, 11 }, {  9,  6 }, false },    // protocol 3
   { 380, {  1,  6 }, {  1,  3 }, {  3,  1 }, false },    // protocol 4
   { 500, {  6, 14 }, {  1,  2 }, {  2,  1 }, false },    // protocol 5
@@ -103,7 +105,7 @@ volatile unsigned int RCSwitch::nReceivedBitlength = 0;
 volatile unsigned int RCSwitch::nReceivedDelay = 0;
 volatile unsigned int RCSwitch::nReceivedProtocol = 0;
 int RCSwitch::nReceiveTolerance = 60;
-const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 4300;
+const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 2300;
 // separationLimit: minimum microseconds between received codes, closer codes are ignored.
 // according to discussion on issue #14 it might be more suitable to set the separation
 // limit to the same time as the 'low' part of the sync signal for the current protocol.
@@ -622,7 +624,10 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     const unsigned int syncLengthInPulses =  ((pro.syncFactor.low) > (pro.syncFactor.high)) ? (pro.syncFactor.low) : (pro.syncFactor.high);
     const unsigned int delay = RCSwitch::timings[0] / syncLengthInPulses;
     const unsigned int delayTolerance = delay * RCSwitch::nReceiveTolerance / 100;
-    
+
+//    printf("Sync length: %d\n", syncLengthInPulses);
+//    printf("Delay: %d\n", delay);
+
     /* For protocols that start low, the sync period looks like
      *               _________
      * _____________|         |XXXXXXXXXXXX|
@@ -657,6 +662,8 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         }
     }
 
+    printf("Protocol: %d\n", p);
+
     if (changeCount > 7) {    // ignore very short transmissions: no device sends them, so this must be noise
         RCSwitch::nReceivedValue = code;
         RCSwitch::nReceivedBitlength = (changeCount - 1) / 2;
@@ -680,7 +687,13 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   if (duration > RCSwitch::nSeparationLimit) {
     // A long stretch without signal level change occurred. This could
     // be the gap between two transmission.
-    if ((repeatCount==0) || (diff(duration, RCSwitch::timings[0]) < 200)) {
+
+
+    if ((repeatCount==0) || (diff(duration, RCSwitch::timings[0]) < 1800)) {
+
+//        printf("Triggger : %d\n", duration);
+
+
       // This long signal is close in length to the long signal which
       // started the previously recorded timings; this suggests that
       // it may indeed by a a gap between two transmissions (we assume
@@ -688,6 +701,10 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
       // with roughly the same gap between them).
       repeatCount++;
       if (repeatCount == 2) {
+
+        printf("Trigger2: %d\n", duration);
+
+
         for(unsigned int i = 1; i <= numProto; i++) {
           if (receiveProtocol(i, changeCount)) {
             // receive succeeded for protocol i
